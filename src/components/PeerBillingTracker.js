@@ -215,48 +215,76 @@ const PeerBillingTracker = () => {
     return getPreviousWeekRevenue(3);
   };
 
-  // Excel file processing
+  // Excel file processing with better error handling
   const processExcelFile = async (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
           const data = new Uint8Array(e.target.result);
-          const workbook = await import('xlsx').then(XLSX => XLSX.read(data, { type: 'array' }));
+          
+          // Dynamic import of xlsx library
+          const XLSX = await import('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js').then(() => window.XLSX);
+          
+          const workbook = XLSX.read(data, { type: 'array', cellDates: true, dateNF: 'mm/dd/yyyy' });
           
           // Process the first sheet
           const sheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[sheetName];
-          const jsonData = await import('xlsx').then(XLSX => XLSX.utils.sheet_to_json(worksheet, { header: 1 }));
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, dateNF: 'mm/dd/yyyy' });
           
           // Parse the Excel data
           const headers = jsonData[0] || [];
           const rows = jsonData.slice(1);
           
+          console.log('Processing Excel file:', file.name);
+          console.log('Headers found:', headers);
+          console.log('Total rows:', rows.length);
+          
           const sessionData = [];
-          rows.forEach(row => {
-            if (row[0] && row[1] && row[3]) { // First Name, Last Name, Date
+          rows.forEach((row, index) => {
+            if (row && row.length >= 4 && row[0] && row[1] && row[3]) { // First Name, Last Name, Date
               const fullName = `${row[0]} ${row[1]}`.trim();
               const staffName = row[2] || '';
-              const sessionDate = row[3];
+              let sessionDate = row[3];
+              
+              // Handle different date formats
+              if (typeof sessionDate === 'number') {
+                // Excel serial date
+                const excelDate = new Date((sessionDate - 25569) * 86400 * 1000);
+                sessionDate = excelDate.toISOString().split('T')[0];
+              } else if (typeof sessionDate === 'string') {
+                // Try to parse string date
+                const parsedDate = new Date(sessionDate);
+                if (!isNaN(parsedDate.getTime())) {
+                  sessionDate = parsedDate.toISOString().split('T')[0];
+                }
+              }
               
               sessionData.push({
                 clientName: fullName,
                 staffName: staffName,
                 sessionDate: sessionDate,
-                originalRow: row
+                originalRow: row,
+                rowIndex: index + 2 // +2 for header and 0-indexing
               });
+              
+              console.log(`Row ${index + 2}: ${fullName} - ${staffName} - ${sessionDate}`);
             }
           });
+          
+          console.log('Valid sessions found:', sessionData.length);
           
           resolve({
             fileName: file.name,
             sessionData: sessionData,
             totalRows: rows.length,
-            validSessions: sessionData.length
+            validSessions: sessionData.length,
+            headers: headers
           });
         } catch (error) {
-          reject(error);
+          console.error('Error processing Excel file:', error);
+          reject(new Error(`Failed to process Excel file: ${error.message}`));
         }
       };
       reader.onerror = () => reject(new Error('Failed to read file'));
@@ -289,25 +317,36 @@ const PeerBillingTracker = () => {
     return { matches, unmatched };
   };
 
-  // Handle file upload
+  // Handle file upload with better error handling
   const handleFileUpload = async (file) => {
+    console.log('File upload initiated:', file.name, file.size, 'bytes');
+    
     if (!file.name.match(/\.(xlsx|xls)$/i)) {
       alert('Please upload an Excel file (.xlsx or .xls)');
       return;
     }
     
+    // Show loading state
+    setUploadPreview({ loading: true, fileName: file.name });
+    
     try {
+      console.log('Processing Excel file...');
       const excelData = await processExcelFile(file);
+      console.log('Excel processing completed:', excelData);
+      
+      console.log('Matching clients...');
       const matchResult = matchExcelToClients(excelData);
+      console.log('Client matching completed:', matchResult);
       
       setUploadPreview({
         ...excelData,
-        ...matchResult
+        ...matchResult,
+        loading: false
       });
-      setShowExcelUpload(true);
     } catch (error) {
       console.error('Error processing file:', error);
-      alert('Error processing Excel file. Please check the file format.');
+      setUploadPreview(null);
+      alert(`Error processing Excel file: ${error.message}\n\nPlease ensure the file has columns: First Name, Last Name, Staff, Date`);
     }
   };
 
@@ -1236,6 +1275,12 @@ const PeerBillingTracker = () => {
                 <div className="mt-4 text-sm text-gray-500">
                   Expected format: First Name, Last Name, Staff, Date
                 </div>
+              </div>
+            ) : uploadPreview.loading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto mb-4"></div>
+                <h4 className="text-lg font-semibold text-gray-900 mb-2">Processing Excel File...</h4>
+                <p className="text-gray-600">Analyzing {uploadPreview.fileName}</p>
               </div>
             ) : (
               <div>
