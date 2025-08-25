@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { PlusCircle, Users, DollarSign, AlertTriangle, Download, Calendar, Search, Edit2, Trash2, CheckCircle, XCircle, Clock } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { PlusCircle, Users, DollarSign, AlertTriangle, Download, Calendar, Search, Edit2, Trash2, CheckCircle, XCircle, Clock, Upload, FileSpreadsheet, Eye, X } from 'lucide-react';
 
 const PeerBillingTracker = () => {
   const [clients, setClients] = useState([]);
   const [peers, setPeers] = useState([]);
-  const [currentWeek, setCurrentWeek] = useState('2025-08-23');
+  const [currentWeek, setCurrentWeek] = useState('2025-08-24'); // Sunday date
   const [showAddClient, setShowAddClient] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
   const [showAddPeer, setShowAddPeer] = useState(false);
@@ -15,6 +15,10 @@ const PeerBillingTracker = () => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showCashFlowModal, setShowCashFlowModal] = useState(false);
   const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
+  const [showExcelUpload, setShowExcelUpload] = useState(false);
+  const [uploadPreview, setUploadPreview] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef(null);
 
   // Constants
   const SESSION_RATE = 155;
@@ -26,13 +30,41 @@ const PeerBillingTracker = () => {
     'Vaya', 'AmeriHealth', 'Carolina Complete Health', 'UHC Comm. Plan'
   ];
 
+  // Helper function to get Sunday of the current week
+  const getSundayOfWeek = (date) => {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day;
+    return new Date(d.setDate(diff));
+  };
+
+  // Helper function to format week display (Sunday to Saturday)
+  const formatWeekRange = (sundayDate) => {
+    const sunday = new Date(sundayDate);
+    const saturday = new Date(sunday);
+    saturday.setDate(sunday.getDate() + 6);
+    
+    const sundayStr = sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const saturdayStr = saturday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    
+    return `${sundayStr} - ${saturdayStr}`;
+  };
+
+  // Helper function to get current day of billing week (Sunday = 1, Saturday = 7)
+  const getCurrentDayOfWeek = () => {
+    const today = new Date();
+    const sunday = getSundayOfWeek(currentWeek);
+    const diffTime = today.getTime() - sunday.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    return Math.min(Math.max(diffDays + 1, 1), 7);
+  };
+
   // Load peers from localStorage
   useEffect(() => {
     const savedPeers = localStorage.getItem('peer_specialists');
     if (savedPeers) {
       setPeers(JSON.parse(savedPeers));
     } else {
-      // Start with empty peer list - user will add their own
       setPeers([]);
     }
   }, []);
@@ -44,13 +76,14 @@ const PeerBillingTracker = () => {
     }
   }, [peers]);
 
-  // Load data from localStorage
+  // Load data from localStorage with Sunday-based week key
   useEffect(() => {
-    const savedData = localStorage.getItem(`billing_data_${currentWeek}`);
+    const sundayDate = getSundayOfWeek(currentWeek).toISOString().split('T')[0];
+    const savedData = localStorage.getItem(`billing_data_${sundayDate}`);
     if (savedData) {
       setClients(JSON.parse(savedData));
     } else {
-      // Initialize with your complete 68-client roster - no peer assignments initially
+      // Initialize with your complete 68-client roster
       const sampleData = [
         { id: 1, name: "Yulasey Martinez", age: 40, memberId: "950697986N", payer: "BCBS NC", servicingPeer: "", sessionsThisWeek: 0, lastSessionDate: "", notes: "Ready for peer assignment" },
         { id: 2, name: "Trevarius Eaddy", age: 24, memberId: "946752554M", payer: "AmeriHealth", servicingPeer: "", sessionsThisWeek: 0, lastSessionDate: "", notes: "Young client, needs peer assignment" },
@@ -125,10 +158,11 @@ const PeerBillingTracker = () => {
     }
   }, [currentWeek]);
 
-  // Save data to localStorage
+  // Save data to localStorage using Sunday-based week key
   useEffect(() => {
     if (clients.length > 0) {
-      localStorage.setItem(`billing_data_${currentWeek}`, JSON.stringify(clients));
+      const sundayDate = getSundayOfWeek(currentWeek).toISOString().split('T')[0];
+      localStorage.setItem(`billing_data_${sundayDate}`, JSON.stringify(clients));
     }
   }, [clients, currentWeek]);
 
@@ -141,9 +175,10 @@ const PeerBillingTracker = () => {
 
   const getPreviousWeekRevenue = (weeksBack) => {
     try {
-      const pastDate = new Date(currentWeek);
-      pastDate.setDate(pastDate.getDate() - (weeksBack * 7));
-      const weekKey = pastDate.toISOString().split('T')[0];
+      const currentSunday = getSundayOfWeek(currentWeek);
+      const pastSunday = new Date(currentSunday);
+      pastSunday.setDate(pastSunday.getDate() - (weeksBack * 7));
+      const weekKey = pastSunday.toISOString().split('T')[0];
       const weekData = localStorage.getItem(`billing_data_${weekKey}`);
       
       if (weekData) {
@@ -159,9 +194,10 @@ const PeerBillingTracker = () => {
 
   const getPreviousWeekSessions = (weeksBack) => {
     try {
-      const pastDate = new Date(currentWeek);
-      pastDate.setDate(pastDate.getDate() - (weeksBack * 7));
-      const weekKey = pastDate.toISOString().split('T')[0];
+      const currentSunday = getSundayOfWeek(currentWeek);
+      const pastSunday = new Date(currentSunday);
+      pastSunday.setDate(pastSunday.getDate() - (weeksBack * 7));
+      const weekKey = pastSunday.toISOString().split('T')[0];
       const weekData = localStorage.getItem(`billing_data_${weekKey}`);
       
       if (weekData) {
@@ -179,7 +215,167 @@ const PeerBillingTracker = () => {
     return getPreviousWeekRevenue(3);
   };
 
-  // Reset week data - Fixed implementation
+  // Excel file processing
+  const processExcelFile = async (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = await import('xlsx').then(XLSX => XLSX.read(data, { type: 'array' }));
+          
+          // Process the first sheet
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData = await import('xlsx').then(XLSX => XLSX.utils.sheet_to_json(worksheet, { header: 1 }));
+          
+          // Parse the Excel data
+          const headers = jsonData[0] || [];
+          const rows = jsonData.slice(1);
+          
+          const sessionData = [];
+          rows.forEach(row => {
+            if (row[0] && row[1] && row[3]) { // First Name, Last Name, Date
+              const fullName = `${row[0]} ${row[1]}`.trim();
+              const staffName = row[2] || '';
+              const sessionDate = row[3];
+              
+              sessionData.push({
+                clientName: fullName,
+                staffName: staffName,
+                sessionDate: sessionDate,
+                originalRow: row
+              });
+            }
+          });
+          
+          resolve({
+            fileName: file.name,
+            sessionData: sessionData,
+            totalRows: rows.length,
+            validSessions: sessionData.length
+          });
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
+  // Match Excel data to existing clients
+  const matchExcelToClients = (excelData) => {
+    const matches = [];
+    const unmatched = [];
+    
+    excelData.sessionData.forEach(session => {
+      const client = clients.find(c => 
+        c.name.toLowerCase().includes(session.clientName.toLowerCase()) ||
+        session.clientName.toLowerCase().includes(c.name.toLowerCase())
+      );
+      
+      if (client) {
+        matches.push({
+          ...session,
+          clientId: client.id,
+          currentClient: client
+        });
+      } else {
+        unmatched.push(session);
+      }
+    });
+    
+    return { matches, unmatched };
+  };
+
+  // Handle file upload
+  const handleFileUpload = async (file) => {
+    if (!file.name.match(/\.(xlsx|xls)$/i)) {
+      alert('Please upload an Excel file (.xlsx or .xls)');
+      return;
+    }
+    
+    try {
+      const excelData = await processExcelFile(file);
+      const matchResult = matchExcelToClients(excelData);
+      
+      setUploadPreview({
+        ...excelData,
+        ...matchResult
+      });
+      setShowExcelUpload(true);
+    } catch (error) {
+      console.error('Error processing file:', error);
+      alert('Error processing Excel file. Please check the file format.');
+    }
+  };
+
+  // Apply Excel import
+  const applyExcelImport = () => {
+    if (!uploadPreview) return;
+    
+    const updatedClients = [...clients];
+    let importCount = 0;
+    
+    uploadPreview.matches.forEach(match => {
+      const clientIndex = updatedClients.findIndex(c => c.id === match.clientId);
+      if (clientIndex !== -1) {
+        const sessionDate = new Date(match.sessionDate).toISOString().split('T')[0];
+        const isInCurrentWeek = isDateInCurrentWeek(sessionDate);
+        
+        if (isInCurrentWeek) {
+          updatedClients[clientIndex] = {
+            ...updatedClients[clientIndex],
+            sessionsThisWeek: updatedClients[clientIndex].sessionsThisWeek + 1,
+            lastSessionDate: sessionDate,
+            servicingPeer: match.staffName || updatedClients[clientIndex].servicingPeer,
+            notes: `${updatedClients[clientIndex].notes} | Excel import: ${sessionDate}`.trim()
+          };
+          importCount++;
+        }
+      }
+    });
+    
+    setClients(updatedClients);
+    setUploadPreview(null);
+    setShowExcelUpload(false);
+    
+    alert(`Successfully imported ${importCount} sessions from Excel file.`);
+  };
+
+  // Check if date is in current billing week (Sunday to Saturday)
+  const isDateInCurrentWeek = (dateString) => {
+    const date = new Date(dateString);
+    const currentSunday = getSundayOfWeek(currentWeek);
+    const currentSaturday = new Date(currentSunday);
+    currentSaturday.setDate(currentSaturday.getDate() + 6);
+    
+    return date >= currentSunday && date <= currentSaturday;
+  };
+
+  // Drag and drop handlers
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      handleFileUpload(files[0]);
+    }
+  };
+
+  // Reset week data
   const resetWeekData = () => {
     const resetClients = clients.map(client => ({
       ...client,
@@ -191,7 +387,7 @@ const PeerBillingTracker = () => {
     setShowResetConfirm(false);
   };
 
-  // Add peer with better error handling
+  // Add peer
   const addPeer = (peerName) => {
     if (peerName && peerName.trim() && !peers.includes(peerName.trim())) {
       setPeers(prev => [...prev, peerName.trim()]);
@@ -204,7 +400,6 @@ const PeerBillingTracker = () => {
   const removePeer = (peerName) => {
     if (window.confirm(`Are you sure you want to remove ${peerName}? This will unassign them from all clients.`)) {
       setPeers(peers.filter(p => p !== peerName));
-      // Unassign this peer from all clients
       setClients(clients.map(c => 
         c.servicingPeer === peerName 
           ? { ...c, servicingPeer: '', notes: c.notes + ' - Peer reassignment needed' }
@@ -213,7 +408,7 @@ const PeerBillingTracker = () => {
     }
   };
 
-  // Calculate revenue metrics
+  // Calculate metrics
   const calculateMetrics = () => {
     const totalClients = clients.length;
     const compliantClients = clients.filter(c => c.sessionsThisWeek >= REQUIRED_SESSIONS).length;
@@ -287,7 +482,7 @@ const PeerBillingTracker = () => {
   // Export to CSV
   const exportToCSV = () => {
     const csvData = [
-      ['Week', currentWeek],
+      ['Week', `${formatWeekRange(currentWeek)} (Sunday-Saturday)`],
       [''],
       ['REVENUE SUMMARY'],
       ['Total Clients', metrics.totalClients],
@@ -314,7 +509,7 @@ const PeerBillingTracker = () => {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `billing_report_${currentWeek}.csv`;
+    a.download = `billing_report_${getSundayOfWeek(currentWeek).toISOString().split('T')[0]}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -483,6 +678,8 @@ const PeerBillingTracker = () => {
     return 'bg-red-100 text-red-800 border border-red-200';
   };
 
+  const currentDay = getCurrentDayOfWeek();
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
@@ -512,10 +709,17 @@ const PeerBillingTracker = () => {
                 />
               </div>
               <button
+                onClick={() => setShowExcelUpload(true)}
+                className="bg-emerald-500 text-white px-4 py-2 rounded-lg hover:bg-emerald-600 transition-colors flex items-center space-x-2 text-sm font-medium"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Import Excel</span>
+              </button>
+              <button
                 onClick={() => setShowResetConfirm(true)}
                 className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium"
               >
-                Reset Week
+                New Week
               </button>
               <button
                 onClick={() => setShowCashFlowModal(true)}
@@ -542,6 +746,42 @@ const PeerBillingTracker = () => {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Week Progress Header */}
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 mb-8 border border-blue-200">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">
+                📅 Week of {formatWeekRange(currentWeek)}
+              </h2>
+              <p className="text-blue-600 font-medium">Sunday-Saturday Billing Cycle</p>
+            </div>
+            <div className="text-right">
+              <div className="text-3xl font-bold text-blue-600">Day {currentDay} of 7</div>
+              <p className="text-sm text-gray-600">{7 - currentDay} days remaining</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center space-x-2 mb-2">
+            <div className="flex-1 bg-gray-200 rounded-full h-2">
+              <div 
+                className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                style={{ width: `${(currentDay / 7) * 100}%` }}
+              ></div>
+            </div>
+            <span className="text-sm font-medium text-blue-600">{Math.round((currentDay / 7) * 100)}%</span>
+          </div>
+          
+          <div className="flex justify-between text-xs text-gray-500">
+            <span>Sun</span>
+            <span>Mon</span>
+            <span>Tue</span>
+            <span>Wed</span>
+            <span>Thu</span>
+            <span>Fri</span>
+            <span>Sat</span>
+          </div>
+        </div>
+
         {/* Metrics Dashboard */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
           <div className="bg-white rounded-lg p-6 border-l-4 border-blue-500 shadow-sm">
@@ -613,7 +853,7 @@ const PeerBillingTracker = () => {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
           <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
             <Calendar className="w-5 h-5 mr-2 text-blue-600" />
-            3-Week Reimbursement Pipeline
+            3-Week Reimbursement Pipeline (Sunday-Saturday Weeks)
           </h2>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -627,7 +867,7 @@ const PeerBillingTracker = () => {
                 <div className="text-sm text-blue-600 mb-3">{metrics.actualSessions} sessions completed</div>
                 <div className="text-xs text-gray-600">
                   <strong>Payment Expected:</strong><br />
-                  {new Date(new Date(currentWeek).getTime() + (21 * 24 * 60 * 60 * 1000)).toLocaleDateString()}
+                  {new Date(new Date(getSundayOfWeek(currentWeek)).getTime() + (21 * 24 * 60 * 60 * 1000)).toLocaleDateString()}
                 </div>
                 <div className="mt-4 bg-blue-200 rounded-full h-2">
                   <div 
@@ -649,7 +889,7 @@ const PeerBillingTracker = () => {
                 <div className="text-sm text-yellow-600 mb-3">{getPreviousWeekSessions(1)} sessions</div>
                 <div className="text-xs text-gray-600">
                   <strong>Payment Expected:</strong><br />
-                  {new Date(new Date(currentWeek).getTime() + (14 * 24 * 60 * 60 * 1000)).toLocaleDateString()}
+                  {new Date(new Date(getSundayOfWeek(currentWeek)).getTime() + (14 * 24 * 60 * 60 * 1000)).toLocaleDateString()}
                 </div>
                 <div className="mt-4 bg-yellow-200 rounded-full h-2">
                   <div 
@@ -909,6 +1149,151 @@ const PeerBillingTracker = () => {
         </div>
       </div>
 
+      {/* Excel Upload Modal */}
+      {showExcelUpload && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-4xl max-h-screen overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center">
+                <FileSpreadsheet className="w-6 h-6 mr-2 text-emerald-600" />
+                Import Excel Data
+              </h3>
+              <button
+                onClick={() => {
+                  setShowExcelUpload(false);
+                  setUploadPreview(null);
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {!uploadPreview ? (
+              <div 
+                className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
+                  isDragging ? 'border-emerald-500 bg-emerald-50' : 'border-gray-300'
+                }`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <Upload className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <h4 className="text-xl font-semibold text-gray-900 mb-2">
+                  Drop your Excel file here
+                </h4>
+                <p className="text-gray-600 mb-4">
+                  Or click to browse for .xlsx or .xls files
+                </p>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="bg-emerald-600 text-white px-6 py-2 rounded-lg hover:bg-emerald-700 transition-colors"
+                >
+                  Choose File
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={(e) => e.target.files[0] && handleFileUpload(e.target.files[0])}
+                  className="hidden"
+                />
+                <div className="mt-4 text-sm text-gray-500">
+                  Expected format: First Name, Last Name, Staff, Date
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-6">
+                  <h4 className="font-semibold text-emerald-800 mb-2">Import Preview</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <span className="text-emerald-700 font-medium">File:</span>
+                      <p className="text-emerald-600">{uploadPreview.fileName}</p>
+                    </div>
+                    <div>
+                      <span className="text-emerald-700 font-medium">Valid Sessions:</span>
+                      <p className="text-emerald-600">{uploadPreview.validSessions}</p>
+                    </div>
+                    <div>
+                      <span className="text-emerald-700 font-medium">Matched Clients:</span>
+                      <p className="text-emerald-600">{uploadPreview.matches.length}</p>
+                    </div>
+                    <div>
+                      <span className="text-emerald-700 font-medium">Unmatched:</span>
+                      <p className="text-red-600">{uploadPreview.unmatched.length}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <h4 className="font-semibold text-gray-800 mb-3">Matched Sessions (will be imported)</h4>
+                  <div className="max-h-64 overflow-y-auto border rounded-lg">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left">Client Name</th>
+                          <th className="px-4 py-2 text-left">Staff</th>
+                          <th className="px-4 py-2 text-left">Date</th>
+                          <th className="px-4 py-2 text-left">Current Sessions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {uploadPreview.matches.map((match, index) => (
+                          <tr key={index} className="border-b">
+                            <td className="px-4 py-2">{match.clientName}</td>
+                            <td className="px-4 py-2">{match.staffName}</td>
+                            <td className="px-4 py-2">{match.sessionDate}</td>
+                            <td className="px-4 py-2">{match.currentClient.sessionsThisWeek}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {uploadPreview.unmatched.length > 0 && (
+                  <div className="mb-6">
+                    <h4 className="font-semibold text-red-800 mb-3">Unmatched Records (will be skipped)</h4>
+                    <div className="max-h-32 overflow-y-auto border rounded-lg bg-red-50">
+                      <table className="w-full text-sm">
+                        <tbody>
+                          {uploadPreview.unmatched.map((record, index) => (
+                            <tr key={index} className="border-b">
+                              <td className="px-4 py-2 text-red-700">{record.clientName}</td>
+                              <td className="px-4 py-2 text-red-600">(No matching client found)</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => {
+                      setUploadPreview(null);
+                      setShowExcelUpload(false);
+                    }}
+                    className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={applyExcelImport}
+                    className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+                    disabled={uploadPreview.matches.length === 0}
+                  >
+                    Import {uploadPreview.matches.length} Sessions
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Add Peer Modal */}
       {showAddPeer && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -953,7 +1338,7 @@ const PeerBillingTracker = () => {
         </div>
       )}
 
-      {/* Modals */}
+      {/* Client Form Modals */}
       {showAddClient && (
         <ClientForm
           onSave={addClient}
@@ -973,9 +1358,9 @@ const PeerBillingTracker = () => {
       {showResetConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">
-            <h3 className="text-xl font-bold mb-4 text-gray-800">Reset Week Data</h3>
+            <h3 className="text-xl font-bold mb-4 text-gray-800">Start New Billing Week</h3>
             <p className="text-gray-600 mb-6">
-              This will reset all client session counts to 0 for a fresh week. 
+              This will reset all client session counts to 0 for a fresh Sunday-Saturday billing week. 
               Current data will be saved in the weekly history. Are you sure?
             </p>
             <div className="flex justify-end space-x-3">
@@ -989,7 +1374,7 @@ const PeerBillingTracker = () => {
                 onClick={resetWeekData}
                 className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
               >
-                Reset Week
+                Start New Week
               </button>
             </div>
           </div>
@@ -1008,7 +1393,7 @@ const PeerBillingTracker = () => {
                 <div className="text-2xl font-bold text-blue-600">${metrics.actualRevenue.toLocaleString()}</div>
                 <div className="text-sm text-blue-600">{metrics.actualSessions} sessions</div>
                 <div className="text-xs text-gray-500 mt-2">
-                  Payment due: {new Date(new Date(currentWeek).getTime() + (21 * 24 * 60 * 60 * 1000)).toLocaleDateString()}
+                  Payment due: {new Date(new Date(getSundayOfWeek(currentWeek)).getTime() + (21 * 24 * 60 * 60 * 1000)).toLocaleDateString()}
                 </div>
               </div>
               
@@ -1017,7 +1402,7 @@ const PeerBillingTracker = () => {
                 <div className="text-2xl font-bold text-green-600">${getPreviousWeekRevenue(1).toLocaleString()}</div>
                 <div className="text-sm text-green-600">{getPreviousWeekSessions(1)} sessions</div>
                 <div className="text-xs text-gray-500 mt-2">
-                  Payment due: {new Date(new Date(currentWeek).getTime() + (14 * 24 * 60 * 60 * 1000)).toLocaleDateString()}
+                  Payment due: {new Date(new Date(getSundayOfWeek(currentWeek)).getTime() + (14 * 24 * 60 * 60 * 1000)).toLocaleDateString()}
                 </div>
               </div>
               
