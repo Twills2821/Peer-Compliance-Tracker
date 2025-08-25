@@ -699,14 +699,50 @@ const PeerBillingTracker = () => {
               <p className="text-gray-600 text-sm ml-16">Healthcare Revenue Protection & Compliance Monitoring</p>
             </div>
             <div className="flex items-center space-x-3">
-              <div className="flex items-center space-x-2 bg-gray-50 px-3 py-2 rounded-lg border">
+              <div className="flex items-center space-x-1 bg-gray-50 px-3 py-2 rounded-lg border">
+                <button
+                  onClick={() => {
+                    const currentSunday = getSundayOfWeek(currentWeek);
+                    const previousSunday = new Date(currentSunday);
+                    previousSunday.setDate(previousSunday.getDate() - 7);
+                    setCurrentWeek(previousSunday.toISOString().split('T')[0]);
+                  }}
+                  className="text-gray-500 hover:text-gray-700 transition-colors p-1 rounded"
+                  title="Previous week"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
                 <Calendar className="w-4 h-4 text-gray-500" />
                 <input
                   type="date"
                   value={currentWeek}
-                  onChange={(e) => setCurrentWeek(e.target.value)}
-                  className="bg-transparent border-none focus:outline-none text-sm"
+                  onChange={(e) => {
+                    // Snap to the Sunday of the selected week
+                    const selectedSunday = getSundayOfWeek(e.target.value);
+                    setCurrentWeek(selectedSunday.toISOString().split('T')[0]);
+                  }}
+                  className="bg-transparent border-none focus:outline-none text-sm w-28"
                 />
+                <button
+                  onClick={() => {
+                    const currentSunday = getSundayOfWeek(currentWeek);
+                    const nextSunday = new Date(currentSunday);
+                    nextSunday.setDate(nextSunday.getDate() + 7);
+                    setCurrentWeek(nextSunday.toISOString().split('T')[0]);
+                  }}
+                  className="text-gray-500 hover:text-gray-700 transition-colors p-1 rounded"
+                  title="Next week"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                  </svg>
+                </button>
+              </div>
+              <div className="text-xs text-gray-500 bg-white px-2 py-1 rounded border">
+                Week {Math.ceil(((new Date(currentWeek) - new Date(new Date().getFullYear(), 0, 1)) / 86400000 + 1) / 7)}
               </div>
               <button
                 onClick={() => setShowExcelUpload(true)}
