@@ -7,7 +7,7 @@ import {
   CheckCircle2, 
   AlertCircle,
   Download,
-  Upload,
+  
   Plus,
   Minus,
   Edit3,
@@ -138,7 +138,7 @@ const PeerBillingTracker = () => {
     } else {
       setPeerSpecialists(['Sarah Johnson', 'Michael Chen', 'Ashley Williams', 'David Martinez']);
     }
-  }, []);
+  }, [initialClients]);
 
   // Save data whenever clients or peers change
   useEffect(() => {
