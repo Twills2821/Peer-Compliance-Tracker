@@ -215,7 +215,7 @@ const PeerBillingTracker = () => {
     return getPreviousWeekRevenue(3);
   };
 
-  // Excel file processing with better error handling
+  // Excel file processing with better error handling (fixed for Netlify)
   const processExcelFile = async (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -223,8 +223,18 @@ const PeerBillingTracker = () => {
         try {
           const data = new Uint8Array(e.target.result);
           
-          // Dynamic import of xlsx library
-          const XLSX = await import('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js').then(() => window.XLSX);
+          // Use the xlsx library that's already available in the environment
+          let XLSX;
+          try {
+            XLSX = await import('xlsx');
+          } catch (importError) {
+            // Fallback: try to access global XLSX if dynamic import fails
+            if (typeof window !== 'undefined' && window.XLSX) {
+              XLSX = window.XLSX;
+            } else {
+              throw new Error('XLSX library not available');
+            }
+          }
           
           const workbook = XLSX.read(data, { type: 'array', cellDates: true, dateNF: 'mm/dd/yyyy' });
           
