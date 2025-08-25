@@ -215,7 +215,7 @@ const PeerBillingTracker = () => {
     return getPreviousWeekRevenue(3);
   };
 
-  // Excel file processing with better error handling (fixed for Netlify)
+  // Simplified Excel file processing that works reliably in browser
   const processExcelFile = async (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -223,81 +223,147 @@ const PeerBillingTracker = () => {
         try {
           const data = new Uint8Array(e.target.result);
           
-          // Use the xlsx library that's already available in the environment
-          let XLSX;
-          try {
-            XLSX = await import('xlsx');
-          } catch (importError) {
-            // Fallback: try to access global XLSX if dynamic import fails
-            if (typeof window !== 'undefined' && window.XLSX) {
-              XLSX = window.XLSX;
-            } else {
-              throw new Error('XLSX library not available');
+          // Use the XLSX library that's available via CDN in the React environment
+          if (typeof window.XLSX === 'undefined') {
+            // Fallback: try to use SheetJS from CDN
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+            script.onload = () => processWithXLSX();
+            script.onerror = () => reject(new Error('Failed to load Excel processing library'));
+            document.head.appendChild(script);
+          } else {
+            processWithXLSX();
+          }
+          
+          function processWithXLSX() {
+            try {
+              const XLSX = window.XLSX;
+              const workbook = XLSX.read(data, { 
+                type: 'array', 
+                cellDates: true, 
+                dateNF: 'mm/dd/yyyy',
+                raw: false 
+              });
+              
+              console.log('Workbook loaded, sheets:', workbook.SheetNames);
+              
+              // Process ALL sheets (tabs) instead of just the first one
+              const allSessionData = [];
+              const sheetSummary = {};
+              
+              workbook.SheetNames.forEach(sheetName => {
+                // Skip any sheets that might be summaries or non-peer data
+                if (sheetName.toLowerCase().includes('sheet') || 
+                    sheetName.toLowerCase().includes('rebilled') ||
+                    sheetName.toLowerCase().includes('summary')) {
+                  console.log(`Skipping sheet: ${sheetName}`);
+                  return;
+                }
+                
+                console.log(`Processing sheet: ${sheetName}`);
+                
+                const worksheet = workbook.Sheets[sheetName];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+                  header: 1, 
+                  raw: false, 
+                  dateNF: 'mm/dd/yyyy',
+                  defval: ''
+                });
+                
+                if (jsonData.length === 0) {
+                  console.log(`Sheet ${sheetName} is empty, skipping`);
+                  return;
+                }
+                
+                // Check if this sheet has the expected header format
+                const headers = jsonData[0] || [];
+                const hasValidHeaders = headers.some(h => 
+                  h && (h.toLowerCase().includes('name') || h.toLowerCase().includes('date'))
+                );
+                
+                if (!hasValidHeaders) {
+                  console.log(`Sheet ${sheetName} doesn't have valid headers, skipping`);
+                  return;
+                }
+                
+                const rows = jsonData.slice(1);
+                let sheetSessionCount = 0;
+                
+                rows.forEach((row, index) => {
+                  if (row && row.length >= 4 && row[0] && row[1] && row[3]) {
+                    const fullName = `${row[0]} ${row[1]}`.trim();
+                    const staffName = row[2] || sheetName; // Use sheet name if no staff column
+                    let sessionDate = row[3];
+                    
+                    // Handle date parsing
+                    if (typeof sessionDate === 'string') {
+                      // Parse MM/DD/YYYY format
+                      const dateParts = sessionDate.split('/');
+                      if (dateParts.length === 3) {
+                        const month = dateParts[0].padStart(2, '0');
+                        const day = dateParts[1].padStart(2, '0');
+                        const year = dateParts[2];
+                        sessionDate = `${year}-${month}-${day}`;
+                      } else {
+                        // Try standard date parsing
+                        const parsedDate = new Date(sessionDate);
+                        if (!isNaN(parsedDate.getTime())) {
+                          sessionDate = parsedDate.toISOString().split('T')[0];
+                        }
+                      }
+                    } else if (typeof sessionDate === 'number') {
+                      // Excel serial date
+                      const excelDate = new Date((sessionDate - 25569) * 86400 * 1000);
+                      sessionDate = excelDate.toISOString().split('T')[0];
+                    }
+                    
+                    allSessionData.push({
+                      clientName: fullName,
+                      staffName: staffName,
+                      sessionDate: sessionDate,
+                      originalRow: row,
+                      rowIndex: index + 2,
+                      sheetName: sheetName // Track which sheet this came from
+                    });
+                    
+                    sheetSessionCount++;
+                    console.log(`${sheetName}: ${fullName} - ${staffName} - ${sessionDate}`);
+                  }
+                });
+                
+                sheetSummary[sheetName] = sheetSessionCount;
+                console.log(`Sheet ${sheetName}: ${sheetSessionCount} sessions processed`);
+              });
+              
+              console.log('All sheets processed. Summary:', sheetSummary);
+              console.log('Total valid sessions across all sheets:', allSessionData.length);
+              
+              resolve({
+                fileName: file.name,
+                sessionData: allSessionData,
+                totalRows: allSessionData.length,
+                validSessions: allSessionData.length,
+                sheetSummary: sheetSummary,
+                sheetsProcessed: Object.keys(sheetSummary)
+              });
+              
+            } catch (error) {
+              console.error('Error in processWithXLSX:', error);
+              reject(new Error(`Excel processing error: ${error.message}`));
             }
           }
           
-          const workbook = XLSX.read(data, { type: 'array', cellDates: true, dateNF: 'mm/dd/yyyy' });
-          
-          // Process the first sheet
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, dateNF: 'mm/dd/yyyy' });
-          
-          // Parse the Excel data
-          const headers = jsonData[0] || [];
-          const rows = jsonData.slice(1);
-          
-          console.log('Processing Excel file:', file.name);
-          console.log('Headers found:', headers);
-          console.log('Total rows:', rows.length);
-          
-          const sessionData = [];
-          rows.forEach((row, index) => {
-            if (row && row.length >= 4 && row[0] && row[1] && row[3]) { // First Name, Last Name, Date
-              const fullName = `${row[0]} ${row[1]}`.trim();
-              const staffName = row[2] || '';
-              let sessionDate = row[3];
-              
-              // Handle different date formats
-              if (typeof sessionDate === 'number') {
-                // Excel serial date
-                const excelDate = new Date((sessionDate - 25569) * 86400 * 1000);
-                sessionDate = excelDate.toISOString().split('T')[0];
-              } else if (typeof sessionDate === 'string') {
-                // Try to parse string date
-                const parsedDate = new Date(sessionDate);
-                if (!isNaN(parsedDate.getTime())) {
-                  sessionDate = parsedDate.toISOString().split('T')[0];
-                }
-              }
-              
-              sessionData.push({
-                clientName: fullName,
-                staffName: staffName,
-                sessionDate: sessionDate,
-                originalRow: row,
-                rowIndex: index + 2 // +2 for header and 0-indexing
-              });
-              
-              console.log(`Row ${index + 2}: ${fullName} - ${staffName} - ${sessionDate}`);
-            }
-          });
-          
-          console.log('Valid sessions found:', sessionData.length);
-          
-          resolve({
-            fileName: file.name,
-            sessionData: sessionData,
-            totalRows: rows.length,
-            validSessions: sessionData.length,
-            headers: headers
-          });
         } catch (error) {
-          console.error('Error processing Excel file:', error);
-          reject(new Error(`Failed to process Excel file: ${error.message}`));
+          console.error('Error in file processing:', error);
+          reject(new Error(`File processing error: ${error.message}`));
         }
       };
-      reader.onerror = () => reject(new Error('Failed to read file'));
+      
+      reader.onerror = () => {
+        console.error('FileReader error');
+        reject(new Error('Failed to read file'));
+      };
+      
       reader.readAsArrayBuffer(file);
     });
   };
@@ -1295,8 +1361,8 @@ const PeerBillingTracker = () => {
             ) : (
               <div>
                 <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-6">
-                  <h4 className="font-semibold text-emerald-800 mb-2">Import Preview</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <h4 className="font-semibold text-emerald-800 mb-2">Import Preview - All Sheets Processed</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
                     <div>
                       <span className="text-emerald-700 font-medium">File:</span>
                       <p className="text-emerald-600">{uploadPreview.fileName}</p>
@@ -1314,6 +1380,19 @@ const PeerBillingTracker = () => {
                       <p className="text-red-600">{uploadPreview.unmatched.length}</p>
                     </div>
                   </div>
+                  
+                  {uploadPreview.sheetSummary && (
+                    <div className="mb-4">
+                      <h5 className="font-medium text-emerald-800 mb-2">Sheets Processed:</h5>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+                        {Object.entries(uploadPreview.sheetSummary).map(([sheetName, count]) => (
+                          <div key={sheetName} className="bg-emerald-100 px-2 py-1 rounded text-xs">
+                            <span className="font-medium">{sheetName}:</span> {count} sessions
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mb-6">
@@ -1323,8 +1402,9 @@ const PeerBillingTracker = () => {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-4 py-2 text-left">Client Name</th>
-                          <th className="px-4 py-2 text-left">Staff</th>
+                          <th className="px-4 py-2 text-left">Staff/Peer</th>
                           <th className="px-4 py-2 text-left">Date</th>
+                          <th className="px-4 py-2 text-left">Sheet</th>
                           <th className="px-4 py-2 text-left">Current Sessions</th>
                         </tr>
                       </thead>
@@ -1334,6 +1414,11 @@ const PeerBillingTracker = () => {
                             <td className="px-4 py-2">{match.clientName}</td>
                             <td className="px-4 py-2">{match.staffName}</td>
                             <td className="px-4 py-2">{match.sessionDate}</td>
+                            <td className="px-4 py-2">
+                              <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                                {match.sheetName}
+                              </span>
+                            </td>
                             <td className="px-4 py-2">{match.currentClient.sessionsThisWeek}</td>
                           </tr>
                         ))}
